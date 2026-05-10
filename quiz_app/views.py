@@ -12,7 +12,7 @@ from django.contrib.auth import authenticate, login, logout
 from django.contrib import messages
 from django.views.decorators.cache import never_cache
 
-from .models import AIQuiz, Course, StudentProfile, QuizResult
+from .models import AIQuiz, Course, StudentProfile, QuizResult, Lesson, Module
 from .ai_service import generate_quiz_json
 
 from .utils import (
@@ -155,6 +155,39 @@ def course_player(request, course_slug):
         'course_data': json.dumps(course_data)
     })
 
+@csrf_exempt
+@login_required(login_url='login_page')
+def generate_course_api(request):
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+            title = data.get('title')
+            if not title:
+                return JsonResponse({'error': 'Title is required'}, status=400)
+            
+            from django.utils.text import slugify
+            import uuid
+            
+            base_slug = slugify(title)
+            slug = base_slug
+            if Course.objects.filter(slug=slug).exists():
+                slug = f"{base_slug}-{str(uuid.uuid4())[:8]}"
+
+            course = Course.objects.create(
+                title=title,
+                instructor=request.user.username,
+                slug=slug
+            )
+            
+            from .course_maker import trigger_course_generation
+            trigger_course_generation(course)
+            
+            return JsonResponse({'message': 'Course generation started! Refresh in a minute.'}, status=202)
+        except Exception as e:
+            return JsonResponse({'error': str(e)}, status=500)
+            
+    return JsonResponse({'error': 'Invalid request'}, status=400)
+
 def login_page(request):
     if request.user.is_authenticated:
         return redirect('dashboard')
@@ -207,3 +240,134 @@ def contact(request):
 
 def courses_home(request):
     return render(request, 'courses_home.html')
+
+from django.utils import timezone
+from datetime import timedelta
+
+@csrf_exempt
+@login_required(login_url='login_page')
+def mark_lesson_complete_api(request):
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+            lesson_id = data.get('lesson_id')
+            time_spent = data.get('time_spent', 0)
+            
+            from .models import LessonProgress
+            lesson = get_object_or_404(Lesson, id=lesson_id)
+            profile, _ = StudentProfile.objects.get_or_create(user=request.user)
+            
+            # Update Profile Activity & Streak
+            today = timezone.now().date()
+            if profile.last_active_date != today:
+                # If they were active exactly yesterday, increment streak
+                if profile.last_active_date == today - timedelta(days=1):
+                    profile.streak_count += 1
+                else:
+                    profile.streak_count = 1  # Reset to 1 if skipped days
+                profile.last_active_date = today
+
+            profile.last_watched_lesson = lesson
+            
+            # Legacy logic array
+            if profile.completed_lessons is None:
+                profile.completed_lessons = []
+            if lesson_id not in profile.completed_lessons:
+                profile.completed_lessons.append(lesson_id)
+                
+            profile.save()
+            
+            # Store in relational tracking
+            lp, created = LessonProgress.objects.get_or_create(user=request.user, lesson=lesson)
+            lp.is_completed = True
+            lp.time_spent_seconds += int(time_spent)
+            lp.save()
+            
+            return JsonResponse({'message': 'Progress saved!', 'streak': profile.streak_count})
+        except Exception as e:
+            return JsonResponse({'error': str(e)}, status=500)
+    return JsonResponse({'error': 'Invalid'}, status=400)
+
+@login_required(login_url='login_page')
+def analytics_data(request):
+    import traceback
+    try:
+        profile, _ = StudentProfile.objects.get_or_create(user=request.user)
+        completed_lesson_ids = profile.completed_lessons or []
+        
+        # Identify started courses
+        all_lessons = list(Lesson.objects.filter(id__in=completed_lesson_ids).select_related('module__course'))
+        started_courses = {l.module.course for l in all_lessons}
+        
+        from .models import LessonProgress
+        time_spent = sum((lp.time_spent_seconds or 0) for lp in LessonProgress.objects.filter(user=request.user))
+        
+        overall_progress = []
+        course_list = []
+        for c in started_courses:
+            pct = get_course_progress(request.user, c)
+            overall_progress.append(pct)
+            c_lessons = Lesson.objects.filter(module__course=c).count()
+            c_done = len([l for l in all_lessons if l.module.course == c])
+            
+            course_list.append({
+                'title': c.title,
+                'thumbnail': c.thumbnail,
+                'slug': c.slug,
+                'progress': pct,
+                'lessons_done': c_done,
+                'total_lessons': c_lessons
+            })
+
+        avg_progress = (sum(overall_progress) / len(overall_progress)) if overall_progress else 0
+
+        # Quizzes
+        quizzes = QuizResult.objects.filter(user=request.user)
+        avg_score = sum((q.percentage or 0) for q in quizzes) / len(quizzes) if quizzes else 0
+        best_score = max(((q.percentage or 0) for q in quizzes), default=0)
+        worst_score = min(((q.percentage or 0) for q in quizzes), default=0)
+        
+        quiz_history_labels = [q.date_taken.strftime("%b %d") if q.date_taken else "Unknown" for q in quizzes]
+        quiz_history_data = [(q.percentage or 0) for q in quizzes]
+
+        # Activity Heatmap
+        from collections import Counter
+        activity_dates = []
+        for lp in LessonProgress.objects.filter(user=request.user):
+            if lp.completed_at:
+                activity_dates.append(lp.completed_at.strftime("%Y-%m-%d"))
+        for q in quizzes:
+            if q.date_taken:
+                activity_dates.append(q.date_taken.strftime("%Y-%m-%d"))
+                
+        heatmap = dict(Counter(activity_dates))
+
+        last_watched_title = "None"
+        if profile.last_watched_lesson_id:
+            try:
+                last_watched_title = profile.last_watched_lesson.title
+            except Exception:
+                pass
+
+        return JsonResponse({
+            'summary': {
+                'total_courses': len(started_courses),
+                'total_lessons': len(completed_lesson_ids),
+                'overall_progress': int(avg_progress),
+                'time_spent': time_spent,
+                'streak': profile.streak_count or 0,
+                'last_watched': last_watched_title
+            },
+            'courses': course_list,
+            'quiz_performance': {
+                'avg': int(avg_score),
+                'best': best_score,
+                'worst': worst_score,
+                'labels': quiz_history_labels,
+                'data': quiz_history_data,
+                'attempted': len(quizzes)
+            },
+            'heatmap': heatmap
+        })
+    except Exception as e:
+        return JsonResponse({'error': str(e), 'trace': traceback.format_exc()})

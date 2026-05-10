@@ -17,6 +17,10 @@ class StudentProfile(models.Model):
     learning_vector = models.JSONField(default=list, blank=True)
     completed_lessons = models.JSONField(default=list, blank=True)
     
+    last_active_date = models.DateField(auto_now=True, null=True, blank=True)
+    last_watched_lesson = models.ForeignKey('Lesson', on_delete=models.SET_NULL, null=True, blank=True)
+    streak_count = models.IntegerField(default=0)
+    
     def __str__(self):
         return f"{self.user.username}'s Profile"
 
@@ -74,19 +78,20 @@ class Lesson(models.Model):
 # 3. PROGRESS & QUIZZES
 # ==========================================
 
-# class LessonProgress(models.Model):
-#     """Tracks exactly which videos/lessons a user has finished."""
-#     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='progress')
-#     lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE)
-#     is_completed = models.BooleanField(default=False)
-#     completed_at = models.DateTimeField(auto_now=True)
+class LessonProgress(models.Model):
+    """Tracks exactly which videos/lessons a user has finished."""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='progress')
+    lesson = models.ForeignKey('Lesson', on_delete=models.CASCADE)
+    is_completed = models.BooleanField(default=False)
+    completed_at = models.DateTimeField(auto_now=True)
+    time_spent_seconds = models.IntegerField(default=0)
 
-#     class Meta:
-#         unique_together = ('user', 'lesson') # Prevents duplicate progress entries
-#         verbose_name_plural = "Lesson_Progress"
+    class Meta:
+        unique_together = ('user', 'lesson') # Prevents duplicate progress entries
+        verbose_name_plural = "Lesson_Progress"
 
-#     def __str__(self):
-#         return f"{self.user.username} - {self.lesson.title}"
+    def __str__(self):
+        return f"{self.user.username} - {self.lesson.title}"
 
 class AIQuiz(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)

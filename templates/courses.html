@@ -73,6 +73,13 @@
             <div class="content-wrapper">
                 <h2>My Learning Library</h2>
 
+                <div class="generate-course-section" style="margin-bottom: 25px; padding: 15px; background: white; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); display: flex; gap: 10px; align-items: center; border: 1px solid #eaeaea;">
+                    <input type="text" id="newCourseInput" placeholder="What do you want to learn? (e.g. Master React in 2026)" style="flex: 1; padding: 12px 15px; border: 1px solid #ddd; border-radius: 8px; font-family: 'Poppins', sans-serif; font-size: 14px; outline: none; transition: border-color 0.3s;" onfocus="this.style.borderColor='var(--primary)'" onblur="this.style.borderColor='#ddd'">
+                    <button id="generateCourseBtn" class="btn-sm" style="background: linear-gradient(135deg, #6C63FF, #5A52D5); color: white; padding: 12px 24px; border-radius: 8px; border: none; cursor: pointer; display: flex; gap: 8px; align-items: center; font-weight: 500; transition: transform 0.2s;" onclick="generateCourse()">
+                        <i class="fas fa-magic"></i> Generate Course
+                    </button>
+                </div>
+
                 <div style="display: flex; gap: 10px; margin-bottom: 20px;">
                     <button class="btn-sm" style="background: var(--primary, #6C63FF); color: white;">All Courses</button>
                     <button class="btn-sm" style="background: #eee; color: #333;">In Progress</button>
@@ -111,5 +118,57 @@
             </div>
         </main>
     </div>
+
+    <script>
+        function generateCourse() {
+            const input = document.getElementById('newCourseInput');
+            const btn = document.getElementById('generateCourseBtn');
+            const title = input.value.trim();
+            
+            if (!title) {
+                alert("Please enter a course topic!");
+                return;
+            }
+            
+            // UI Feedback
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating...';
+            btn.style.opacity = '0.8';
+            btn.disabled = true;
+            input.disabled = true;
+            
+            fetch("{% url 'generate_course_api' %}", {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ title: title })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if(data.error) {
+                    alert("Error: " + data.error);
+                    resetBtn(btn, input);
+                } else {
+                    btn.innerHTML = '<i class="fas fa-check"></i> Started!';
+                    btn.style.background = '#2ECC71';
+                    alert("Course generation started successfully in the background! Please wait ~30 seconds and refresh this page to see your new course.");
+                    input.value = '';
+                    setTimeout(() => resetBtn(btn, input), 3000);
+                }
+            })
+            .catch(err => {
+                alert("Something went wrong!");
+                resetBtn(btn, input);
+            });
+        }
+        
+        function resetBtn(btn, input) {
+            btn.innerHTML = '<i class="fas fa-magic"></i> Generate Course';
+            btn.style.background = 'linear-gradient(135deg, #6C63FF, #5A52D5)';
+            btn.style.opacity = '1';
+            btn.disabled = false;
+            input.disabled = false;
+        }
+    </script>
 </body>
 </html>

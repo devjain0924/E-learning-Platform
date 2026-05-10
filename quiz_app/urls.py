@@ -19,4 +19,7 @@ urlpatterns = [
     path('save-result/', views.save_quiz_result, name='save_result'),
     path('history/', views.get_quiz_history, name='quiz_history'),
     path('course/<slug:course_slug>/', views.course_player, name='course_player'),
+    path('generate-course-api/', views.generate_course_api, name='generate_course_api'),
+    path('mark-lesson/', views.mark_lesson_complete_api, name='mark_lesson_api'),
+    path('analytics-data/', views.analytics_data, name='analytics_data_api'),
 ]

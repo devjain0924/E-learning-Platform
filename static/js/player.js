@@ -112,6 +112,58 @@ function loadLesson(lesson) {
     lessonTitle.innerText = lesson.title || "Untitled Lesson";
     lessonDesc.innerText = lesson.content || "No description available for this lesson.";
     lessonDuration.innerText = lesson.duration || "--:--";
+
+    // Tracking for completion
+    currentLessonId = lesson.id;
+    lessonStartTime = new Date();
+    
+    const btn = document.getElementById('markCompleteBtn');
+    if (btn) {
+        btn.style.display = 'flex';
+        btn.innerHTML = '<i class="fas fa-check"></i> Mark Complete';
+        btn.disabled = false;
+        btn.style.background = '#2ECC71';
+    }
+}
+
+let currentLessonId = null;
+let lessonStartTime = null;
+
+function markLessonComplete() {
+    if (!currentLessonId) return;
+    const btn = document.getElementById('markCompleteBtn');
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+    btn.disabled = true;
+    
+    let timeSpent = lessonStartTime ? Math.floor((new Date() - lessonStartTime) / 1000) : 0;
+    
+    fetch('/api/mark-lesson/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ lesson_id: currentLessonId, time_spent: timeSpent })
+    })
+    .then(res => res.json())
+    .then(data => {
+        btn.innerHTML = '<i class="fas fa-check-double"></i> Completed';
+        btn.style.background = '#ccc';
+        
+        // Update the sidebar icon dynamically
+        const activeItem = document.querySelector('.lesson-item.active');
+        if (activeItem) {
+            const icon = activeItem.querySelector('.status-icon');
+            if (icon) {
+                icon.className = 'fas fa-check-circle status-icon';
+                icon.style.color = '#2ECC71';
+            }
+        }
+    })
+    .catch(err => {
+        console.error(err);
+        btn.innerHTML = 'Error. Try Again';
+        btn.disabled = false;
+    });
 }
 
 // Start the player

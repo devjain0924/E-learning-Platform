@@ -32,6 +32,12 @@ class CourseAdmin(admin.ModelAdmin):
     search_fields = ('title', 'instructor')
     # Automatically fills the slug field as you type the title
     prepopulated_fields = {'slug': ('title',)} 
+    
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        # Import here to avoid circular dependencies
+        from .course_maker import trigger_course_generation
+        trigger_course_generation(obj) 
 
 @admin.register(Module)
 class ModuleAdmin(admin.ModelAdmin):
